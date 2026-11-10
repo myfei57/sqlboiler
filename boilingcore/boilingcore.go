@@ -113,6 +113,10 @@ func New(config *Config) (*State, error) {
 		return nil, err
 	}
 
+	if err := normalizeUpdateBatchCAS(&s.Config.UpdateBatchCAS, s.Tables); err != nil {
+		return nil, err
+	}
+
 	templates, err = s.initTemplates()
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to initialize templates")
@@ -172,6 +176,8 @@ func (s *State) Run() error {
 		DBTypes:     make(once),
 		StringFuncs: templateStringMappers,
 		AutoColumns: s.Config.AutoColumns,
+
+		UpdateBatchCAS: s.Config.UpdateBatchCAS,
 
 		DiscardedEnumTypes: s.Config.DiscardedEnumTypes,
 	}

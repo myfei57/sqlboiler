@@ -74,6 +74,10 @@ type Config struct {
 	Inflections  Inflections          `toml:"inflections,omitempty" json:"inflections,omitempty"`
 	ForeignKeys  []drivers.ForeignKey `toml:"foreign_keys,omitempty" json:"foreign_keys,omitempty" `
 
+	// UpdateBatchCAS enables optional UpdateBatchCAS generation for the
+	// tables declaring a version column. The zero value disables generation.
+	UpdateBatchCAS UpdateBatchCASConfig `toml:"update_batch_cas,omitempty" json:"update_batch_cas,omitempty"`
+
 	StrictVerifyModVersion bool `toml:"strict_verify_mod_version,omitempty" json:"strict_verify_mod_version"`
 
 	Version string `toml:"version" json:"version"`
@@ -83,6 +87,72 @@ type AutoColumns struct {
 	Created string `toml:"created,omitempty" json:"created,omitempty"`
 	Updated string `toml:"updated,omitempty" json:"updated,omitempty"`
 	Deleted string `toml:"deleted,omitempty" json:"deleted,omitempty"`
+}
+
+const (
+	// DefaultUpdateBatchCASMaxRows is the default ceiling on the number of
+	// rows accepted by a single UpdateBatchCAS call.
+	DefaultUpdateBatchCASMaxRows = 100
+	// DefaultUpdateBatchCASMaxSQLArgs is the default ceiling on the total
+	// number of bound SQL parameters produced by a single UpdateBatchCAS
+	// call. It stays below SQLite's 32766 and PostgreSQL's 65535 limits.
+	DefaultUpdateBatchCASMaxSQLArgs = 32000
+)
+
+// UpdateBatchCASConfig configures the optional UpdateBatchCAS code
+// generation. A table only gets the generated entry point when it declares
+// a version column through VersionColumn/VersionColumns.
+type UpdateBatchCASConfig struct {
+	// VersionColumn declares the version column name shared by every
+	// eligible table.
+	VersionColumn string `toml:"version_column,omitempty" json:"version_column,omitempty"`
+	// VersionColumns optionally overrides the version column per table.
+	// A table-specific entry wins over VersionColumn.
+	VersionColumns map[string]string `toml:"version_columns,omitempty" json:"version_columns,omitempty"`
+	// MaxBatchSize bounds the number of rows handled in one batch.
+	MaxBatchSize int `toml:"max_batch_size,omitempty" json:"max_batch_size,omitempty"`
+	// MaxSQLArgs bounds the total number of bound parameters in one batch.
+	MaxSQLArgs int `toml:"max_sql_args,omitempty" json:"max_sql_args,omitempty"`
+}
+
+// Enabled reports whether UpdateBatchCAS generation is switched on.
+func (c UpdateBatchCASConfig) Enabled() bool {
+	return len(c.VersionColumn) != 0 || len(c.VersionColumns) != 0
+}
+
+// VersionColumnFor resolves the declared version column of a table.
+// The bool is false when the table does not participate in UpdateBatchCAS.
+func (c UpdateBatchCASConfig) VersionColumnFor(table string) (string, bool) {
+	name := c.VersionColumnName(table)
+	return name, len(name) != 0
+}
+
+// VersionColumnName resolves the declared version column of a table and
+// returns the empty string when the table does not participate in
+// UpdateBatchCAS. Its single-return shape makes it usable directly from
+// text/template actions.
+func (c UpdateBatchCASConfig) VersionColumnName(table string) string {
+	if name, ok := c.VersionColumns[table]; ok && len(name) != 0 {
+		return name
+	}
+	return c.VersionColumn
+}
+
+// Normalized fills in the budget defaults and rejects impossible budgets.
+func (c UpdateBatchCASConfig) Normalized() (UpdateBatchCASConfig, error) {
+	if c.MaxBatchSize == 0 {
+		c.MaxBatchSize = DefaultUpdateBatchCASMaxRows
+	}
+	if c.MaxSQLArgs == 0 {
+		c.MaxSQLArgs = DefaultUpdateBatchCASMaxSQLArgs
+	}
+	if c.MaxBatchSize < 1 {
+		return c, errors.New("update_batch_cas.max_batch_size must be greater than zero")
+	}
+	if c.MaxSQLArgs < 1 {
+		return c, errors.New("update_batch_cas.max_sql_args must be greater than zero")
+	}
+	return c, nil
 }
 
 type StructTagCases struct {

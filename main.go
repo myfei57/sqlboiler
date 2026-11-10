@@ -205,6 +205,12 @@ func preRun(cmd *cobra.Command, args []string) error {
 			Irregular:     viper.GetStringMapString("inflections.irregular"),
 		},
 		ForeignKeys:            boilingcore.ConvertForeignKeys(viper.Get("foreign_keys")),
+		UpdateBatchCAS: boilingcore.UpdateBatchCASConfig{
+			VersionColumn:  viper.GetString("update_batch_cas.version_column"),
+			VersionColumns: viper.GetStringMapString("update_batch_cas.version_columns"),
+			MaxBatchSize:   viper.GetInt("update_batch_cas.max_batch_size"),
+			MaxSQLArgs:     viper.GetInt("update_batch_cas.max_sql_args"),
+		},
 		StrictVerifyModVersion: viper.GetBool("strict-verify-mod-version"),
 
 		Version: sqlBoilerVersion,

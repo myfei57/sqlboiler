@@ -84,6 +84,9 @@ type templateData struct {
 	// AutoColumns set the name of the columns for auto timestamps and soft deletes
 	AutoColumns AutoColumns
 
+	// UpdateBatchCAS carries the optional batch compare-and-swap configuration.
+	UpdateBatchCAS UpdateBatchCASConfig
+
 	// Enum types which will not be generated, because they were replaced.
 	DiscardedEnumTypes []string
 }
@@ -326,8 +329,8 @@ var templateFunctions = template.FuncMap{
 	"whereClause": strmangle.WhereClause,
 
 	// Alias and text helping
-	"aliasCols":              func(ta TableAlias) func(string) string { return ta.Column },
-	"usesPrimitives":         usesPrimitives,
+	"aliasCols":      func(ta TableAlias) func(string) string { return ta.Column },
+	"usesPrimitives": usesPrimitives,
 	"isPrimitive":            isPrimitive,
 	"isNullPrimitive":        isNullPrimitive,
 	"convertNullToPrimitive": convertNullToPrimitive,
