@@ -232,6 +232,14 @@ func NewDefaultImports() Collection {
 				`"github.com/aarondl/strmangle"`,
 			},
 		},
+		"boil_clone_graph": {
+			Standard: List{
+				`"errors"`,
+				`"fmt"`,
+				`"reflect"`,
+				`"sync"`,
+			},
+		},
 	}
 
 	col.Test = Set{

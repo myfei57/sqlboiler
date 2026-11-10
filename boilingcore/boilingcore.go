@@ -158,6 +158,8 @@ func (s *State) Run() error {
 		NoBackReferencing:     s.Config.NoBackReferencing,
 		NoRelationGetters:     s.Config.NoRelationGetters,
 		AlwaysWrapErrors:      s.Config.AlwaysWrapErrors,
+		CloneGraph:            s.Config.CloneGraph,
+		CloneGraphAdapters:    make(map[string]struct{}),
 		StructTagCasing:       s.Config.StructTagCasing,
 		StructTagCases:        s.Config.StructTagCases,
 		TagIgnore:             make(map[string]struct{}),
@@ -181,6 +183,16 @@ func (s *State) Run() error {
 			return errors.New("Invalid column name %q supplied, only specify column name or table.column, eg: created_at, user.password")
 		}
 		data.TagIgnore[v] = struct{}{}
+	}
+
+	for _, v := range s.Config.CloneGraphAdapters {
+		data.CloneGraphAdapters[v] = struct{}{}
+	}
+
+	if s.Config.CloneGraph {
+		if err := validateCloneGraph(s.Tables, data.CloneGraphAdapters); err != nil {
+			return err
+		}
 	}
 
 	if err := generateSingletonOutput(s, data); err != nil {

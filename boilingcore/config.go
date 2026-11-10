@@ -51,6 +51,15 @@ type Config struct {
 	AlwaysWrapErrors      bool     `toml:"always_wrap_errors,omitempty" json:"always_wrap_errors,omitempty"`
 	Wipe                  bool     `toml:"wipe,omitempty" json:"wipe,omitempty"`
 
+	// CloneGraph enables generation of the CloneGraph API for deep-copying
+	// loaded model graphs without executing SQL or triggering hooks/loaders.
+	CloneGraph bool `toml:"clone_graph,omitempty" json:"clone_graph,omitempty"`
+	// CloneGraphAdapters lists the fully qualified Go type names (for example
+	// "myorg.Widget") of type-replaced columns whose deep copy is provided by
+	// an adapter registered via RegisterCloneGraphAdapter. Any other unknown
+	// column type aborts generation.
+	CloneGraphAdapters []string `toml:"clone_graph_adapters,omitempty" json:"clone_graph_adapters,omitempty"`
+
 	StructTagCases StructTagCases `toml:"struct_tag_cases,omitempty" json:"struct_tag_cases,omitempty"`
 
 	// StructTagCasing is a legacy config field, which will be migrated to StructTagCases in the future.

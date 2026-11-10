@@ -55,6 +55,12 @@ type templateData struct {
 	NoRelationGetters     bool
 	AlwaysWrapErrors      bool
 
+	// CloneGraph enables the generated CloneGraph deep-copy API.
+	CloneGraph bool
+	// CloneGraphAdapters contains the Go type names that are copied through a
+	// user registered CloneGraph adapter instead of the built-in strategies.
+	CloneGraphAdapters map[string]struct{}
+
 	// Tags control which tags are added to the struct
 	Tags []string
 

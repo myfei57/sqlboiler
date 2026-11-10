@@ -199,8 +199,17 @@ func executeSingletonTemplates(e executeTemplateData) error {
 			writeImports(out, imps)
 		}
 
+		headerLen := out.Len()
+
 		if err := executeTemplate(out, e.templates.Template, tplName, e.data); err != nil {
 			return err
+		}
+
+		// Skip writing the file if the template emitted nothing, e.g. the
+		// CloneGraph singleton when the feature is disabled. An unused import
+		// block or a header-only file would otherwise break compilation.
+		if out.Len() == headerLen {
+			continue
 		}
 
 		if err := writeFile(e.state.Config.OutFolder, normalized, out, isGo); err != nil {

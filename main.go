@@ -103,6 +103,8 @@ func main() {
 	rootCmd.PersistentFlags().BoolP("no-back-referencing", "", false, "Disable back referencing in the loaded relationship structs")
 	rootCmd.PersistentFlags().BoolP("no-schema", "", false, "Disable generating a schema in the output")
 	rootCmd.PersistentFlags().BoolP("no-relation-getters", "", false, "Disable generating getters for relationship tables")
+	rootCmd.PersistentFlags().BoolP("clone-graph", "", false, "Enable generation of the CloneGraph deep-copy API for loaded model graphs")
+	rootCmd.PersistentFlags().StringSliceP("clone-graph-adapter", "", nil, "Fully qualified Go type name of a type-replaced column with a registered CloneGraph adapter (repeatable)")
 	rootCmd.PersistentFlags().BoolP("always-wrap-errors", "", false, "Wrap all returned errors with stacktraces, also sql.ErrNoRows")
 	rootCmd.PersistentFlags().BoolP("add-global-variants", "", false, "Enable generation for global variants")
 	rootCmd.PersistentFlags().BoolP("add-panic-variants", "", false, "Enable generation for panic variants")
@@ -177,6 +179,8 @@ func preRun(cmd *cobra.Command, args []string) error {
 		NoRelationGetters:     viper.GetBool("no-relation-getters"),
 		AlwaysWrapErrors:      viper.GetBool("always-wrap-errors"),
 		Wipe:                  viper.GetBool("wipe"),
+		CloneGraph:            viper.GetBool("clone-graph"),
+		CloneGraphAdapters:    viper.GetStringSlice("clone-graph-adapter"),
 		StructTagCasing:       strings.ToLower(viper.GetString("struct-tag-casing")), // camel | snake | title
 		StructTagCases: boilingcore.StructTagCases{
 			// make this compatible with the legacy struct-tag-casing config
