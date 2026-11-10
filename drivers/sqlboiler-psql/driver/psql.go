@@ -793,6 +793,102 @@ func (p *PostgresDriver) foreignKeyInfoFromDB(schema, tableName string) ([]drive
 	return fkeys, nil
 }
 
+// ForeignKeyConstraintInfo retrieves complete constraint level foreign key
+// metadata for the given table, including the ordered column correspondence
+// of composite keys, ON DELETE/ON UPDATE actions, the MATCH clause and
+// deferrability. Unlike ForeignKeyInfo, composite keys are kept intact.
+func (p *PostgresDriver) ForeignKeyConstraintInfo(schema, tableName string) ([]drivers.ForeignKeyConstraint, error) {
+	query := `
+	select
+		pgcon.conname,
+		pgn.nspname as table_schema,
+		pgc.relname as table_name,
+		pgnf.nspname as foreign_schema,
+		pgcf.relname as foreign_table,
+		src.attname as column_name,
+		dst.attname as foreign_column_name,
+		pgcon.confdeltype,
+		pgcon.confupdtype,
+		pgcon.confmatchtype,
+		pgcon.condeferrable,
+		pgcon.condeferred,
+		ord.ordinality
+	from pg_namespace pgn
+		inner join pg_class pgc on pgn.oid = pgc.relnamespace and pgc.relkind = 'r'
+		inner join pg_constraint pgcon on pgn.oid = pgcon.connamespace and pgc.oid = pgcon.conrelid and pgcon.contype = 'f'
+		inner join pg_class pgcf on pgcon.confrelid = pgcf.oid
+		inner join pg_namespace pgnf on pgcf.relnamespace = pgnf.oid
+		cross join lateral unnest(pgcon.conkey, pgcon.confkey) with ordinality as ord(conkey, confkey, ordinality)
+		inner join pg_attribute src on src.attrelid = pgc.oid and src.attnum = ord.conkey
+		inner join pg_attribute dst on dst.attrelid = pgcf.oid and dst.attnum = ord.confkey
+	where pgn.nspname = $2 and pgc.relname = $1
+	order by pgcon.conname, ord.ordinality;`
+
+	rows, err := p.conn.Query(query, tableName, schema)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	constraints := make(map[string]*drivers.ForeignKeyConstraint)
+	var order []string
+	for rows.Next() {
+		var (
+			name, tableSchema, table                      string
+			foreignSchema, foreignTable                   string
+			column, foreignColumn                         string
+			deleteAction, updateAction, matchAction       string
+			deferrable, initiallyDeferred                 bool
+			ordinality                                    int64
+		)
+		if err = rows.Scan(
+			&name, &tableSchema, &table, &foreignSchema, &foreignTable,
+			&column, &foreignColumn, &deleteAction, &updateAction, &matchAction,
+			&deferrable, &initiallyDeferred, &ordinality,
+		); err != nil {
+			return nil, err
+		}
+
+		constraint, ok := constraints[name]
+		if !ok {
+			constraint = &drivers.ForeignKeyConstraint{
+				Name:              name,
+				Table:             table,
+				Schema:            tableSchema,
+				ForeignTable:      foreignTable,
+				ForeignSchema:     foreignSchema,
+				OnDelete:          drivers.ParsePostgresActionCode(deleteAction[0]),
+				OnUpdate:          drivers.ParsePostgresActionCode(updateAction[0]),
+				Match:             drivers.ParsePostgresMatchCode(matchAction[0]),
+				Deferrable:        deferrable,
+				InitiallyDeferred: initiallyDeferred,
+				Complete:          true,
+			}
+			constraints[name] = constraint
+			order = append(order, name)
+		}
+
+		constraint.Columns = append(constraint.Columns, drivers.ForeignKeyColumnPair{
+			Column:        column,
+			ForeignColumn: foreignColumn,
+		})
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	result := make([]drivers.ForeignKeyConstraint, 0, len(order))
+	for _, name := range order {
+		constraint := constraints[name]
+		if len(constraint.Columns) == 0 {
+			constraint.Complete = false
+		}
+		result = append(result, *constraint)
+	}
+
+	return result, nil
+}
+
 // TranslateColumnType converts postgres database types to Go types, for example
 // "varchar" to "string" and "bigint" to "int64". It returns this parsed data
 // as a Column object.

@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io/fs"
+	"sort"
 	"strings"
 
 	_ "modernc.org/sqlite"
@@ -509,6 +510,91 @@ func (s SQLiteDriver) foreignKeyInfoFromDB(schema, tableName string) ([]drivers.
 	}
 
 	return fkeys, nil
+}
+
+// ForeignKeyConstraintInfo retrieves complete constraint level foreign key
+// metadata for the given table from PRAGMA foreign_key_list. Rows sharing the
+// same pragma id are grouped back into a single constraint, so composite keys
+// retain their full ordered column correspondence. The pragma exposes the ON
+// DELETE/ON UPDATE actions and MATCH clause, but not deferrability, which is
+// therefore left false.
+func (s SQLiteDriver) ForeignKeyConstraintInfo(schema, tableName string) ([]drivers.ForeignKeyConstraint, error) {
+	rows, err := s.dbConn.Query(fmt.Sprintf("PRAGMA foreign_key_list('%s')", tableName))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	constraints := make(map[int]*drivers.ForeignKeyConstraint)
+	var order []int
+	type columnRow struct {
+		seq                           int
+		pair                          drivers.ForeignKeyColumnPair
+		complete                      bool
+	}
+	columns := make(map[int][]columnRow)
+	for rows.Next() {
+		var (
+			id, seq               int
+			foreignTable          string
+			column, foreignColumn string
+			onUpdate, onDelete    string
+			match                 string
+		)
+		if err = rows.Scan(&id, &seq, &foreignTable, &column, &foreignColumn, &onUpdate, &onDelete, &match); err != nil {
+			return nil, err
+		}
+
+		if _, ok := constraints[id]; !ok {
+			constraints[id] = &drivers.ForeignKeyConstraint{
+				Name:          fmt.Sprintf("FK_%d", id),
+				Table:         tableName,
+				ForeignTable:  foreignTable,
+				OnDelete:      drivers.ParseReferentialAction(onDelete),
+				OnUpdate:      drivers.ParseReferentialAction(onUpdate),
+				Match:         drivers.ParseSQLiteMatch(match),
+				// SQLite parses DEFERRABLE but does not expose or enforce it
+				// through PRAGMA foreign_key_list.
+				Deferrable:        false,
+				InitiallyDeferred: false,
+				Complete:          true,
+			}
+			order = append(order, id)
+		}
+
+		columns[id] = append(columns[id], columnRow{
+			seq: seq,
+			pair: drivers.ForeignKeyColumnPair{
+				Column:        column,
+				ForeignColumn: foreignColumn,
+			},
+			complete: column != "" && foreignColumn != "",
+		})
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	result := make([]drivers.ForeignKeyConstraint, 0, len(order))
+	for _, id := range order {
+		constraint := constraints[id]
+		pairedRows := columns[id]
+		sort.Slice(pairedRows, func(i, j int) bool {
+			return pairedRows[i].seq < pairedRows[j].seq
+		})
+		for _, paired := range pairedRows {
+			constraint.Columns = append(constraint.Columns, paired.pair)
+			if !paired.complete {
+				constraint.Complete = false
+			}
+		}
+		if len(constraint.Columns) == 0 {
+			constraint.Complete = false
+		}
+		result = append(result, *constraint)
+	}
+
+	return result, nil
 }
 
 // TranslateColumnType converts sqlite database types to Go types, for example

@@ -15,6 +15,13 @@ type Table struct {
 	PKey  *PrimaryKey  `json:"p_key"`
 	FKeys []ForeignKey `json:"f_keys"`
 
+	// FKeyConstraints retains full constraint level foreign key metadata
+	// (complete ordered column correspondence, referential actions, MATCH
+	// clause and deferrability) for drivers that provide it. It is left nil by
+	// adapters which cannot supply this information; consumers must not infer
+	// composite relationships or actions from FKeys in that case.
+	FKeyConstraints []ForeignKeyConstraint `json:"f_key_constraints,omitempty"`
+
 	IsJoinTable bool `json:"is_join_table"`
 
 	ToOneRelationships  []ToOneRelationship  `json:"to_one_relationships"`

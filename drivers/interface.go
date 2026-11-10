@@ -218,8 +218,15 @@ func table(c Constructor, schema string, name string, whitelist, blacklist []str
 		return Table{}, errors.Wrapf(err, "unable to fetch table fkey info (%s)", name)
 	}
 
+	if cfc, ok := c.(ForeignKeyConstraintConstructor); ok {
+		if t.FKeyConstraints, err = cfc.ForeignKeyConstraintInfo(schema, name); err != nil {
+			return Table{}, errors.Wrapf(err, "unable to fetch table fkey constraint info (%s)", name)
+		}
+	}
+
 	filterPrimaryKey(t, whitelist, blacklist)
 	filterForeignKeys(t, whitelist, blacklist)
+	filterForeignKeyConstraints(t, whitelist, blacklist)
 
 	setIsJoinTable(t)
 
