@@ -14,6 +14,7 @@ import (
 	"github.com/aarondl/sqlboiler/v4/boilingcore"
 	"github.com/aarondl/sqlboiler/v4/drivers"
 	"github.com/aarondl/sqlboiler/v4/importers"
+	"github.com/aarondl/sqlboiler/v4/schemacontract"
 )
 
 const sqlBoilerVersion = "4.19.7"
@@ -77,6 +78,7 @@ func main() {
 		Long: "SQL Boiler generates a Go ORM from template files, tailored to your database schema.\n" +
 			`Complete documentation is available at http://github.com/aarondl/sqlboiler`,
 		Example:       `sqlboiler psql`,
+		Args:          cobra.ArbitraryArgs,
 		PreRunE:       preRun,
 		RunE:          run,
 		PostRunE:      postRun,
@@ -116,6 +118,25 @@ func main() {
 	rootCmd.PersistentFlags().StringP("relation-tag", "r", "-", "Relationship struct tag name")
 	rootCmd.PersistentFlags().StringSliceP("tag-ignore", "", nil, "List of column names that should have tags values set to '-' (ignored during parsing)")
 	rootCmd.PersistentFlags().BoolP("strict-verify-mod-version", "", false, "Prevent code generation, if project version of sqlboiler not match with executable")
+	rootCmd.PersistentFlags().StringP("schema-contract", "", "", "Write the deterministic schema contract manifest to the given path without modifying generated model files")
+
+	// check-schema compares a previously exported manifest against a live
+	// database using read-only introspection; it never runs DDL.
+	checkSchemaCmd := &cobra.Command{
+		Use:   "check-schema [flags] <driver>",
+		Short: "Check a schema contract manifest against the live database",
+		Long: "Checks a deterministic schema contract manifest against the current " +
+			"database using read-only introspection. Read and write compatibility " +
+			"are reported separately; unknown types are never assumed compatible.",
+		Example:       `sqlboiler check-schema --manifest schema-contract.json psql`,
+		Args:          cobra.ExactArgs(1),
+		SilenceErrors: true,
+		SilenceUsage:  true,
+		RunE:          runCheckSchema,
+	}
+	checkSchemaCmd.Flags().StringP("manifest", "m", "", "Path to the schema contract manifest")
+	_ = checkSchemaCmd.MarkFlagRequired("manifest")
+	rootCmd.AddCommand(checkSchemaCmd)
 
 	// hide flags not recommended for use
 	rootCmd.PersistentFlags().MarkHidden("replace")
@@ -276,7 +297,92 @@ func configureImports() importers.Collection {
 }
 
 func run(cmd *cobra.Command, args []string) error {
+	if contractPath := viper.GetString("schema-contract"); contractPath != "" {
+		manifest, err := cmdState.SchemaContractManifest()
+		if err != nil {
+			return errors.Wrap(err, "failed to build schema contract manifest")
+		}
+		encoded, err := schemacontract.EncodeManifest(manifest)
+		if err != nil {
+			return errors.Wrap(err, "failed to encode schema contract manifest")
+		}
+		if err := os.WriteFile(contractPath, encoded, 0644); err != nil {
+			return errors.Wrap(err, "failed to write schema contract manifest")
+		}
+	}
+
 	return cmdState.Run()
+}
+
+// runCheckSchema is the entry point for the read-only `check-schema`
+// subcommand. The manifest is validated before any database access so corrupt
+// or unsupported artifacts fail fast.
+func runCheckSchema(cmd *cobra.Command, args []string) error {
+	manifestPath, err := cmd.Flags().GetString("manifest")
+	if err != nil {
+		return err
+	}
+
+	manifestFile, err := os.Open(manifestPath)
+	if err != nil {
+		return errors.Wrap(err, "failed to open schema contract manifest")
+	}
+	manifest, err := schemacontract.DecodeManifest(manifestFile)
+	manifestFile.Close()
+	if err != nil {
+		return err
+	}
+
+	driverName, _, err := drivers.RegisterBinaryFromCmdArg(args[0])
+	if err != nil {
+		return errors.Wrap(err, "could not register driver")
+	}
+	if driverName != manifest.DriverName {
+		return errors.Errorf("driver %q does not match manifest driver %q", driverName, manifest.DriverName)
+	}
+
+	report, err := schemacontract.CheckSchemaCompatibility(schemacontract.CheckOptions{
+		Manifest:     manifest,
+		Driver:       drivers.GetDriver(driverName),
+		DriverConfig: buildDriverConfig(driverName),
+	})
+	if err != nil {
+		return err
+	}
+
+	encoded, err := schemacontract.EncodeReport(report)
+	if err != nil {
+		return errors.Wrap(err, "failed to encode compatibility report")
+	}
+	fmt.Print(string(encoded))
+
+	if !report.ReadCompatible || !report.WriteCompatible {
+		return errors.New("schema contract is not fully compatible with the live database")
+	}
+	return nil
+}
+
+// buildDriverConfig assembles the driver configuration from viper the same way
+// preRun does, including driver-prefixed environment and config keys.
+func buildDriverConfig(driverName string) drivers.Config {
+	driverConfig := drivers.Config{
+		"whitelist":                  viper.GetStringSlice(driverName + ".whitelist"),
+		"blacklist":                  viper.GetStringSlice(driverName + ".blacklist"),
+		drivers.ConfigNoOutputSchema: viper.GetBool("no-schema"),
+		"add-enum-types":             viper.GetBool("add-enum-types"),
+		"enum-null-prefix":           viper.GetString("enum-null-prefix"),
+		"foreign-keys":               boilingcore.ConvertForeignKeys(viper.Get("foreign_keys")),
+	}
+
+	for _, key := range allKeys(driverName) {
+		if key == "blacklist" || key == "whitelist" {
+			continue
+		}
+		prefixedKey := fmt.Sprintf("%s.%s", driverName, key)
+		driverConfig[key] = viper.Get(prefixedKey)
+	}
+
+	return driverConfig
 }
 
 func postRun(cmd *cobra.Command, args []string) error {

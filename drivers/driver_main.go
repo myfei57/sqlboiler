@@ -29,6 +29,8 @@ func DriverMain(driver Interface) {
 		// No input for this method
 	case "imports":
 		// No input for this method
+	case "type-rules":
+		// No input for this method
 	}
 
 	var output any
@@ -54,6 +56,18 @@ func DriverMain(driver Interface) {
 			os.Exit(1)
 		}
 		output = collection
+	case "type-rules":
+		provider, ok := driver.(TypeRuleProvider)
+		if !ok {
+			fmt.Fprintln(os.Stderr, "driver does not provide explicit type compatibility rules")
+			os.Exit(1)
+		}
+		ruleSet, err := provider.TypeRules()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		output = ruleSet
 	}
 
 	b, err := json.Marshal(output)

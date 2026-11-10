@@ -7,8 +7,8 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/friendsofgo/errors"
 	"github.com/aarondl/sqlboiler/v4/importers"
+	"github.com/friendsofgo/errors"
 )
 
 type binaryDriver string
@@ -46,6 +46,17 @@ func (b binaryDriver) Imports() (col importers.Collection, err error) {
 	}
 
 	return col, nil
+}
+
+// TypeRules calls the type-rules function so binary drivers can expose the
+// same explicit type compatibility rules as in-process drivers.
+func (b binaryDriver) TypeRules() (*TypeRuleSet, error) {
+	var ruleSet TypeRuleSet
+	if err := execute(string(b), "type-rules", nil, &ruleSet, os.Stderr); err != nil {
+		return nil, err
+	}
+
+	return &ruleSet, nil
 }
 
 func execute(executable, method string, input any, output any, errStream io.Writer) error {

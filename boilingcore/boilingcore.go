@@ -16,6 +16,7 @@ import (
 
 	"github.com/aarondl/sqlboiler/v4/drivers"
 	"github.com/aarondl/sqlboiler/v4/importers"
+	"github.com/aarondl/sqlboiler/v4/schemacontract"
 	boiltemplates "github.com/aarondl/sqlboiler/v4/templates"
 	"github.com/aarondl/strmangle"
 	"github.com/friendsofgo/errors"
@@ -39,6 +40,11 @@ type State struct {
 
 	Templates     *templateList
 	TestTemplates *templateList
+
+	// schemaContractReplaced maps schemacontract.ReplacedColumnKey to the
+	// digest of the TypeReplace applied to that column. It only feeds the
+	// schema contract manifest; generation behavior is unchanged.
+	schemaContractReplaced map[string]string
 }
 
 // New creates a new state based off of the config
@@ -474,6 +480,16 @@ func (s *State) processTypeReplacements() error {
 	}
 
 	for _, r := range s.Config.TypeReplaces {
+		replaceDigest, err := schemacontract.ComputeTypeReplaceDigest(schemacontract.TypeReplaceInput{
+			Tables:  append([]string(nil), r.Tables...),
+			Views:   append([]string(nil), r.Views...),
+			Match:   r.Match,
+			Replace: r.Replace,
+		})
+		if err != nil {
+			return err
+		}
+
 		for i := range s.Tables {
 			t := s.Tables[i]
 
@@ -489,6 +505,7 @@ func (s *State) processTypeReplacements() error {
 						!strmangle.ContainsAny(mandatoryEnumTypes, c.Type) {
 						s.Config.DiscardedEnumTypes = append(s.Config.DiscardedEnumTypes, c.Type)
 					}
+					s.recordSchemaContractReplacement(t, c, replaceDigest)
 					t.Columns[j] = columnMerge(c, r.Replace)
 
 					if len(r.Imports.Standard) != 0 || len(r.Imports.ThirdParty) != 0 {
